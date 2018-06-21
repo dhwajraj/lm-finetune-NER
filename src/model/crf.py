@@ -151,42 +151,42 @@ class CRFRepack_WC:
         self.tagset_size = tagset_size
         self.if_cuda = if_cuda
 
-    def repack_vb(self, f_f, f_p, b_f, b_p, w_f, target, mask, len_b):
+    def repack_vb(self, fc_feature, fc_position, bc_feature, bc_position, word_feature, target, mask, batch_len):
         """packer for viterbi loss
 
         args: 
-            f_f (Char_Seq_len, Batch_size) : forward_char input feature 
-            f_p (Word_Seq_len, Batch_size) : forward_char input position
-            b_f (Char_Seq_len, Batch_size) : backward_char input feature
-            b_p (Word_Seq_len, Batch_size) : backward_char input position
-            w_f (Word_Seq_len, Batch_size) : input word feature
+            fc_feature (Char_Seq_len, Batch_size) : forward_char input feature
+            fc_position (Word_Seq_len, Batch_size) : forward_char input position
+            bc_feature (Char_Seq_len, Batch_size) : backward_char input feature
+            bc_position (Word_Seq_len, Batch_size) : backward_char input position
+            word_feature (Word_Seq_len, Batch_size) : input word feature
             target (Seq_len, Batch_size) : output target
             mask (Word_Seq_len, Batch_size) : padding mask
-            len_b (Batch_size, 2) : length of instances in one batch
+            batch_len (Batch_size, 2) : length of instances in one batch
         return:
             f_f (Char_Reduced_Seq_len, Batch_size), f_p (Word_Reduced_Seq_len, Batch_size), b_f (Char_Reduced_Seq_len, Batch_size), b_p (Word_Reduced_Seq_len, Batch_size), w_f (size Word_Seq_Len, Batch_size), target (Reduced_Seq_len, Batch_size), mask  (Word_Reduced_Seq_len, Batch_size)
 
         """
-        mlen, _ = len_b.max(0)
+        mlen, _ = batch_len.max(0)
         mlen = mlen.squeeze()
-        ocl = b_f.size(1)
+        ocl = bc_feature.size(1)
         if self.if_cuda:
-            f_f = torch.Tensor(f_f[:, 0:mlen[0]].transpose(0, 1)).cuda()
-            f_p = torch.Tensor(f_p[:, 0:mlen[1]].transpose(0, 1)).cuda()
-            b_f = torch.Tensor(b_f[:, -mlen[0]:].transpose(0, 1)).cuda()
-            b_p = torch.Tensor((b_p[:, 0:mlen[1]] - ocl + mlen[0]).transpose(0, 1)).cuda()
-            w_f = torch.Tensor(w_f[:, 0:mlen[1]].transpose(0, 1)).cuda()
-            tg_v = torch.Tensor(target[:, 0:mlen[1]].transpose(0, 1)).unsqueeze(2).cuda()
-            mask_v = torch.Tensor(mask[:, 0:mlen[1]].transpose(0, 1)).cuda()
+            fc_feature = fc_feature[:, 0:mlen[0]].transpose(0, 1).cuda()
+            fc_position = fc_position[:, 0:mlen[1]].transpose(0, 1).cuda()
+            bc_feature = bc_feature[:, -mlen[0]:].transpose(0, 1).cuda()
+            bc_position = (bc_position[:, 0:mlen[1]] - ocl + mlen[0]).transpose(0, 1).cuda()
+            word_feature = word_feature[:, 0:mlen[1]].transpose(0, 1).cuda()
+            tg_v = target[:, 0:mlen[1]].transpose(0, 1).unsqueeze(2).cuda()
+            mask_v = mask[:, 0:mlen[1]].transpose(0, 1).cuda()
         else:
-            f_f = torch.Tensor(f_f[:, 0:mlen[0]].transpose(0, 1))
-            f_p = torch.Tensor(f_p[:, 0:mlen[1]].transpose(0, 1))
-            b_f = torch.Tensor(b_f[:, -mlen[0]:].transpose(0, 1))
-            b_p = torch.Tensor((b_p[:, 0:mlen[1]] - ocl + mlen[0]).transpose(0, 1))
-            w_f = torch.Tensor(w_f[:, 0:mlen[1]].transpose(0, 1))
-            tg_v = torch.Tensor(target[:, 0:mlen[1]].transpose(0, 1)).unsqueeze(2)
-            mask_v = torch.Tensor(mask[:, 0:mlen[1]].transpose(0, 1)).contiguous()
-        return f_f, f_p, b_f, b_p, w_f, tg_v, mask_v
+            fc_feature = fc_feature[:, 0:mlen[0]].transpose(0, 1)
+            fc_position = fc_position[:, 0:mlen[1]].transpose(0, 1)
+            bc_feature = bc_feature[:, -mlen[0]:].transpose(0, 1)
+            bc_position = (bc_position[:, 0:mlen[1]] - ocl + mlen[0]).transpose(0, 1)
+            word_feature = word_feature[:, 0:mlen[1]].transpose(0, 1)
+            tg_v = target[:, 0:mlen[1]].transpose(0, 1).unsqueeze(2)
+            mask_v = mask[:, 0:mlen[1]].transpose(0, 1).contiguous()
+        return fc_feature, fc_position, bc_feature, bc_position, word_feature, tg_v, mask_v
 
     def convert_for_eval(self, target):
         """convert for eval
@@ -368,6 +368,8 @@ class CRFDecode_vb():
         pointer = back_points[-1][:, self.end_tag]
         decode_idx[-1] = pointer
         for idx in range(len(back_points)-2, -1, -1):
-            pointer = torch.gather(back_points[idx], 1, pointer.contiguous().view(bat_size, 1))
+            input = back_points[idx]
+            index = pointer.contiguous().view(-1,1)
+            pointer = torch.gather(input, 1, index).view(-1)
             decode_idx[idx] = pointer
         return decode_idx
